@@ -10,7 +10,8 @@ from common import add_project_root_to_path
 
 add_project_root_to_path()
 from sionna_lrm import RESULTS_DIR
-from sionna_lrm.base_stations import load_transmitters
+from sionna_lrm.base_stations import BaseStationDB
+from sionna_lrm.constants import DEFAULT_TRANSMITTERS_FNAME
 from sionna_lrm.tiling import create_tiling
 
 
@@ -43,14 +44,14 @@ def generate_tiling(
     upper_right = (max_lat, max_lon)
     target_stations_per_tile = 100
 
-    _, transmitters_latlon = load_transmitters()
+    tx_db = BaseStationDB.from_file(DEFAULT_TRANSMITTERS_FNAME)
 
     tile_corners_latlons = create_tiling(
         lower_left,
         upper_right,
         min_tile_side_m=min_size * 1e3,
         max_tile_side_m=max_size * 1e3,
-        base_stations_latlon=transmitters_latlon,
+        base_stations_latlon=tx_db.latlon(),
         target_stations_per_tile=target_stations_per_tile,
         restrict_to_shapefile=shapefile,
     )
