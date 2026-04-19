@@ -60,6 +60,9 @@ DEFAULT_ANTENNA_ARRAY_PARAMS = {
     "polarization": "V",
 }
 
+# Default transmitter power, expressed in Watts. Equivalent to 44 dBm.
+DEFAULT_TX_POWER_W = 25.118864315095795
+
 # Default minimum and maxiumum tile size for tiling (in meters).
 DEFAULT_MIN_CELL_SIZE = 5
 DEFAULT_MAX_CELL_SIZE = 100

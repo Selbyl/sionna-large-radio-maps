@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 import gc
+import json
 import os
 import time
 from typing import Callable
@@ -22,7 +23,6 @@ from .constants import (
     DEFAULT_TX_SEARCH_DISTANCE_M,
     ASSUMED_SCENE_SIZE_MIB,
     MIN_SAMPLES_PER_TX,
-    DEFAULT_ANTENNA_ARRAY_PARAMS,
     DEFAULT_Z_OFFSET_BUILDING,
     DEFAULT_Z_OFFSET_NON_BUILDING,
 )
@@ -109,7 +109,6 @@ def compute_rm_for_tile(
     n_samples = int(n_samples)
 
     # 1. Set up the transmitters.
-    scene.tx_array = rt.PlanarArray(**DEFAULT_ANTENNA_ARRAY_PARAMS)
     original_surface = scene.objects[measurement_surface_id.strip("mesh-")]
 
     # In principle, the elevation of most transmitters should have been
@@ -135,6 +134,23 @@ def compute_rm_for_tile(
         n_faces = original_surface.mi_mesh.face_count()
         return np.zeros(shape=(n_faces,), dtype=np.float32), tx_pos_np
 
+    tx_power_dbm = local_tx_db.tx_power_dbm()
+    tx_array_params = local_tx_db.tx_array_params()
+
+    # Group transmitters by antenna array configuration to allow heterogeneous
+    # transmitter types in the same CSV.
+    grouped_tx = {}
+    for tx_i, array_params in enumerate(tx_array_params):
+        key = json.dumps(array_params, sort_keys=True)
+        grouped_tx.setdefault(key, {"params": array_params, "indices": []})
+        grouped_tx[key]["indices"].append(tx_i)
+
+    if len(grouped_tx) > 1:
+        writer(
+            f"[i] Tile {tile_i:08d}: found {len(grouped_tx)} antenna configurations"
+            " in transmitter data."
+        )
+
     # 2. Prepare mesh-based radio map solver.
     solver = rt.RadioMapSolver()
 
@@ -143,67 +159,72 @@ def compute_rm_for_tile(
     del original_surface
     rt.transform_mesh(surface, translation=[0, 0, measurement_z_offset])
 
-    # 4. Determine number of passes based on estimated memory usage and sample count.
-    n_passes, n_tx_per_pass, n_samples_per_tx = split_work_into_passes(
-        n_transmitters,
-        surface.face_count(),
-        n_samples,
-        max_rm_entries_per_pass,
-        MIN_SAMPLES_PER_TX,
-    )
-
-    if n_passes > 50:
-        writer(
-            f"[!] Tile {tile_i:08d}: needs {n_passes} passes due to"
-            f" samples count {n_samples}, and face count {surface.face_count()}."
-            f" Consider adjusting the module-level constants based on available GPU memory."
-        )
-
-    # 5. Compute radio map (in multiple passes if needed)
+    # 4. Compute radio map (in multiple passes if needed)
     rm_max_path_gain = None
     transmitters_used = []
-    for pass_i in range(n_passes):
-        # Add transmitters for this pass
-        scene._transmitters.clear()  # pylint: disable=protected-access
-        for tx_i in range(
-            pass_i * n_tx_per_pass, min(n_transmitters, (pass_i + 1) * n_tx_per_pass)
-        ):
-            global_tx_idx = local_tx_db.index_at(tx_i)
-            tx = rt.Transmitter(
-                f"tx-{global_tx_idx:04d}",
-                tx_pos_np[:, tx_i],
-            )
+    for group in grouped_tx.values():
+        tx_indices = group["indices"]
+        scene.tx_array = rt.PlanarArray(**group["params"])
 
-            # We seed an RNG with the unique transmitter index so that the
-            # same orientation is applied if the same transmitter is used in multiple tiles.
-            rng = np.random.default_rng(global_tx_idx)
-            vertical_rotation = rng.uniform(-np.pi, np.pi)
-            # Note: tilt is applied electronically when using a triplanar array.
-            tx.orientation = np.array((vertical_rotation, 0, 0))
-
-            scene.add(tx)
-            transmitters_used.append(tx_i)
-
-        # Run radio map solver
-        rm = solver(
-            scene,
-            seed=seed,
-            measurement_surface=surface,
-            samples_per_tx=n_samples_per_tx,
-            max_depth=max_depth,
+        n_passes, n_tx_per_pass, n_samples_per_tx = split_work_into_passes(
+            len(tx_indices),
+            surface.face_count(),
+            n_samples,
+            max_rm_entries_per_pass,
+            MIN_SAMPLES_PER_TX,
         )
 
-        # Update running maximum
-        max_path_gain_i = dr.max(rm.path_gain, axis=0).numpy()
+        if n_passes > 50:
+            writer(
+                f"[!] Tile {tile_i:08d}: needs {n_passes} passes due to"
+                f" samples count {n_samples}, and face count {surface.face_count()}."
+                f" Consider adjusting the module-level constants based on available GPU memory."
+            )
 
-        if rm_max_path_gain is None:
-            rm_max_path_gain = max_path_gain_i
-        else:
-            rm_max_path_gain = np.maximum(rm_max_path_gain, max_path_gain_i)
+        for pass_i in range(n_passes):
+            # Add transmitters for this pass
+            scene._transmitters.clear()  # pylint: disable=protected-access
+            start_i = pass_i * n_tx_per_pass
+            end_i = min(len(tx_indices), (pass_i + 1) * n_tx_per_pass)
+            pass_indices = tx_indices[start_i:end_i]
+            for tx_i in pass_indices:
+                global_tx_idx = local_tx_db.index_at(tx_i)
+                tx = rt.Transmitter(
+                    f"tx-{global_tx_idx:04d}",
+                    tx_pos_np[:, tx_i],
+                    power_dbm=float(tx_power_dbm[tx_i]),
+                )
 
-        del rm
+                # We seed an RNG with the unique transmitter index so that the
+                # same orientation is applied if the same transmitter is used in multiple tiles.
+                rng = np.random.default_rng(global_tx_idx)
+                vertical_rotation = rng.uniform(-np.pi, np.pi)
+                # Note: tilt is applied electronically when using a triplanar array.
+                tx.orientation = np.array((vertical_rotation, 0, 0))
 
-    assert transmitters_used == list(range(n_transmitters))
+                scene.add(tx)
+                transmitters_used.append(tx_i)
+
+            # Run radio map solver
+            rm = solver(
+                scene,
+                seed=seed,
+                measurement_surface=surface,
+                samples_per_tx=n_samples_per_tx,
+                max_depth=max_depth,
+            )
+
+            # Update running maximum
+            max_path_gain_i = dr.max(rm.path_gain, axis=0).numpy()
+
+            if rm_max_path_gain is None:
+                rm_max_path_gain = max_path_gain_i
+            else:
+                rm_max_path_gain = np.maximum(rm_max_path_gain, max_path_gain_i)
+
+            del rm
+
+    assert sorted(transmitters_used) == list(range(n_transmitters))
 
     return rm_max_path_gain, tx_pos_np
 
