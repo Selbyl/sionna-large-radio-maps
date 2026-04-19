@@ -19,6 +19,8 @@ from .constants import (
     SLRM_DATA_DIR,
     DEFAULT_LATLON_ELLIPSOID,
     DEFAULT_TRANSMITTERS_FNAME,
+    DEFAULT_ANTENNA_ARRAY_PARAMS,
+    DEFAULT_TX_POWER_W,
 )
 
 
@@ -113,6 +115,9 @@ class BaseStationDB:
         - 'lon': longitude in degrees
         - 'elevation': elevation in meters (can be NaN)
         - 'building': boolean indicating if the base station is over a building
+        It can also include optional columns such as:
+        - 'tx_power_w': transmitter power in Watts
+        - 'antenna_spec': JSON object with Sionna PlanarArray arguments
         """
         tx = pd.read_csv(fname)
         if (
@@ -174,6 +179,76 @@ class BaseStationDB:
 
     def is_over_building(self) -> np.ndarray:
         return self.tx_df["building"].to_numpy()
+
+    def tx_power_w(self) -> np.ndarray:
+        if "tx_power_w" not in self.tx_df.columns:
+            return np.full(self.tx_count, DEFAULT_TX_POWER_W, dtype=np.float64)
+
+        tx_power_w = (
+            pd.to_numeric(self.tx_df["tx_power_w"], errors="coerce")
+            .to_numpy(dtype=np.float64, copy=True)
+        )
+        invalid = ~np.isfinite(tx_power_w) | (tx_power_w <= 0)
+        tx_power_w[invalid] = DEFAULT_TX_POWER_W
+        return tx_power_w.astype(np.float64)
+
+    def tx_power_dbm(self) -> np.ndarray:
+        # dBm = 30 + 10*log10(P[W])
+        return 30.0 + 10.0 * np.log10(self.tx_power_w())
+
+    def tx_array_params(self) -> list[dict]:
+        specs = [DEFAULT_ANTENNA_ARRAY_PARAMS.copy() for _ in range(self.tx_count)]
+        has_inline_spec = "antenna_spec" in self.tx_df.columns
+        has_flat_cols = any(
+            c in self.tx_df.columns
+            for c in (
+                "antenna_pattern",
+                "antenna_num_rows",
+                "antenna_num_cols",
+                "antenna_vertical_spacing",
+                "antenna_horizontal_spacing",
+                "antenna_polarization",
+            )
+        )
+        if not has_inline_spec and not has_flat_cols:
+            return specs
+
+        for i, (_, row) in enumerate(self.tx_df.iterrows()):
+            spec = specs[i]
+
+            if has_inline_spec:
+                raw = row.get("antenna_spec")
+                if isinstance(raw, str) and raw.strip():
+                    parsed = json.loads(raw)
+                    if not isinstance(parsed, dict):
+                        raise ValueError(
+                            "Column 'antenna_spec' must contain a JSON object per row."
+                        )
+                    spec.update(parsed)
+
+            col_to_key = {
+                "antenna_pattern": "pattern",
+                "antenna_num_rows": "num_rows",
+                "antenna_num_cols": "num_cols",
+                "antenna_vertical_spacing": "vertical_spacing",
+                "antenna_horizontal_spacing": "horizontal_spacing",
+                "antenna_polarization": "polarization",
+            }
+            for col, key in col_to_key.items():
+                if col not in self.tx_df.columns:
+                    continue
+                value = row.get(col)
+                if pd.isna(value):
+                    continue
+                spec[key] = value
+
+            spec["num_rows"] = int(spec["num_rows"])
+            spec["num_cols"] = int(spec["num_cols"])
+            spec["vertical_spacing"] = float(spec["vertical_spacing"])
+            spec["horizontal_spacing"] = float(spec["horizontal_spacing"])
+            spec["pattern"] = str(spec["pattern"])
+
+        return specs
 
     def index_at(self, idx: int | np.ndarray) -> int | np.ndarray:
         """
@@ -249,4 +324,3 @@ class BaseStationDB:
         if return_idx:
             return region_db, tx_idx
         return region_db
-
