@@ -11,7 +11,11 @@ from common import add_project_root_to_path
 
 add_project_root_to_path()
 from sionna_lrm import SLRM_DATA_DIR
-from sionna_lrm.constants import DEFAULT_TRANSMITTERS_FNAME
+from sionna_lrm.constants import (
+    DEFAULT_TRANSMITTERS_FNAME,
+    DEFAULT_TX_POWER_W,
+    DEFAULT_ANTENNA_ARRAY_PARAMS,
+)
 
 SELECTED_COUNTRY = "United States of America"
 SELECTED_CARRIER = "Verizon Wireless"
@@ -28,6 +32,8 @@ def process_data(input_path: str, output_path: str):
     df = pd.read_csv(input_path, usecols=["Country", "radio", "Network", "LAT", "LON"])
     df.insert(0, "building", False)
     df.insert(0, "elevation", np.nan)
+    df.insert(0, "tx_power_w", DEFAULT_TX_POWER_W)
+    df.insert(0, "antenna_spec", "")
 
     # Keep 4G and 5G only, in the US, and for Verizon
     df = df[
@@ -37,6 +43,21 @@ def process_data(input_path: str, output_path: str):
     ]
     df = df.drop(columns=["Country", "radio"])
     df = df.rename(columns={"LAT": "lat", "LON": "lon"})
+    df["antenna_spec"] = (
+        '{"pattern":"'
+        + DEFAULT_ANTENNA_ARRAY_PARAMS["pattern"]
+        + '","num_rows":'
+        + str(DEFAULT_ANTENNA_ARRAY_PARAMS["num_rows"])
+        + ',"num_cols":'
+        + str(DEFAULT_ANTENNA_ARRAY_PARAMS["num_cols"])
+        + ',"vertical_spacing":'
+        + str(DEFAULT_ANTENNA_ARRAY_PARAMS["vertical_spacing"])
+        + ',"horizontal_spacing":'
+        + str(DEFAULT_ANTENNA_ARRAY_PARAMS["horizontal_spacing"])
+        + ',"polarization":"'
+        + DEFAULT_ANTENNA_ARRAY_PARAMS["polarization"]
+        + '"}'
+    )
 
     # Remove duplicate antennas (same lat/lon)
     latlon = df[["lat", "lon"]].to_numpy()

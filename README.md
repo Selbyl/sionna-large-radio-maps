@@ -66,8 +66,18 @@ Base stations
 To use this repository, you will need to provide a dataset of base stations in a CSV format. The required columns are:
 - `lat`: latitude of the base station in degrees.
 - `lon`: longitude of the base station in degrees.
-- `height`: absolute altitude of the base station in meters.
+- `elevation`: absolute altitude of the base station in meters.
 - `building`: A boolean indicating whether the base station is located on top of a building (1) or on the ground (0).
+
+Optional columns for heterogeneous transmitter simulations:
+- `tx_power_w`: transmitter power in Watts. If omitted, defaults to 25.1189 W (44 dBm).
+- `antenna_spec`: JSON object with Sionna `PlanarArray` arguments, e.g.
+  `{"pattern":"tr38901","num_rows":2,"num_cols":16,"vertical_spacing":0.5,"horizontal_spacing":0.5,"polarization":"V"}`.
+- Flat antenna override columns may also be used instead of `antenna_spec`:
+  `antenna_pattern`, `antenna_num_rows`, `antenna_num_cols`, `antenna_vertical_spacing`,
+  `antenna_horizontal_spacing`, `antenna_polarization`.
+
+When mixed antenna specs are present, transmitters are grouped by antenna configuration and simulated in separate solver passes.
 
 You can generate this dataset from your own data, or use public datasets, such as the [OpenCellID](https://opencellid.org/) dataset, which contains millions of crowdsourced base station locations worldwide.
 
@@ -216,4 +226,3 @@ License
 =======
 
 This repository contains code adapted from [geo2sigmap](https://github.com/functions-lab/geo2sigmap) and is released under the Apache 2.0 License. Please see the [LICENSE](LICENSE) file for more details.
-
