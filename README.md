@@ -78,6 +78,7 @@ Optional columns for heterogeneous transmitter simulations:
   `antenna_horizontal_spacing`, `antenna_polarization`.
 
 When mixed antenna specs are present, transmitters are grouped by antenna configuration and simulated in separate solver passes.
+See [`examples/data.csv`](examples/data.csv) for a complete CSV example containing all supported headers.
 
 You can generate this dataset from your own data, or use public datasets, such as the [OpenCellID](https://opencellid.org/) dataset, which contains millions of crowdsourced base station locations worldwide.
 
