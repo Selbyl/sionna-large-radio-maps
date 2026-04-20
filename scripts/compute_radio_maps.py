@@ -55,6 +55,12 @@ def get_parser() -> argparse.ArgumentParser:
         "--samples", "--n-samples", type=int, default=int(5e8), dest="n_samples"
     )
     parser.add_argument(
+        "--frequency-hz",
+        type=float,
+        default=2.35e9,
+        help="Scene carrier frequency in Hz.",
+    )
+    parser.add_argument(
         "--region",
         type=float,
         nargs=4,
