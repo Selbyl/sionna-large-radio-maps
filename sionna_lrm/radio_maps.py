@@ -265,7 +265,11 @@ def compute_rm_for_tiles(
     overwrite: bool = False,
     only_tiles_i: set[int] | None = None,
     measurement_z_offset: float = 1.5,
+    frequency_hz: float = 2.35e9,
 ):
+    if frequency_hz <= 0:
+        raise ValueError(f"frequency_hz must be > 0, got {frequency_hz}.")
+
     os.makedirs(output_dir, exist_ok=True)
 
     # Load tile corner coordinates
@@ -304,6 +308,9 @@ def compute_rm_for_tiles(
         f"[i] {vram_available_mib / 1024:.1f} GiB of VRAM available,"
         f" will use a maximum of {max_rm_entries_per_pass} radio map entries per pass."
     )
+    print(
+        f"[i] Using scene carrier frequency {frequency_hz / 1e6:.3f} MHz ({frequency_hz:.0f} Hz)."
+    )
 
     # Simulate all tiles
     t0 = time.time()
@@ -329,6 +336,7 @@ def compute_rm_for_tiles(
         scene = rt.load_scene(
             tile_scene_fname, merge_shapes_exclude_regex=measurement_surface_id
         )
+        scene.frequency = float(frequency_hz)
         max_extents = dr.max(scene.mi_scene.bbox().extents())
         if max_extents > 1e15:
             progress.write(
@@ -362,6 +370,7 @@ def compute_rm_for_tiles(
             rm=rm_max_path_gain,
             tx_positions=tx_pos_np,
             measurement_z_offset=measurement_z_offset,
+            frequency_hz=float(frequency_hz),
         )
 
         n_computed += 1
